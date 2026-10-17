@@ -1,3 +1,5 @@
+import sys
+import multiprocessing
 import threading
 import queue
 import tkinter as tk
@@ -10,16 +12,20 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("BE Video Intercom Transcriptor")
-        self.root.geometry("600x450")
+        self.root.geometry("620x500")
         
-        # Etichetta di stato
-        self.label = tk.Label(root, text="Pronto", font=("Arial", 12, "bold"))
-        self.label.pack(pady=5)
+        # Configurazione Stile coerente per tema Dark/Light su Mac
+        style = ttk.Style()
+        style.theme_use('clam')
+
+        # Titolo e Stato
+        self.label_status = tk.Label(root, text="Stato: Pronto", font=("Helvetica", 12, "bold"))
+        self.label_status.pack(pady=8)
         
         # Selezione Dispositivo Audio
         frame_audio = tk.Frame(root)
         frame_audio.pack(pady=5)
-        tk.Label(frame_audio, text="Dispositivo Audio:", font=("Arial", 10)).pack(side=tk.LEFT, padx=5)
+        tk.Label(frame_audio, text="Ingresso Audio:", font=("Helvetica", 10, "bold")).pack(side=tk.LEFT, padx=5)
         
         self.devices = sd.query_devices()
         self.input_devices = [d['name'] for d in self.devices if d['max_input_channels'] > 0]
@@ -27,22 +33,35 @@ class App:
         self.selected_device = tk.StringVar(root)
         if self.input_devices:
             self.selected_device.set(self.input_devices[0])
-        
-        self.dropdown = tk.OptionMenu(frame_audio, self.selected_device, *self.input_devices)
-        self.dropdown.config(font=("Arial", 10))
+            
+        self.dropdown = ttk.OptionMenu(frame_audio, self.selected_device, self.selected_device.get(), *self.input_devices)
         self.dropdown.pack(side=tk.LEFT, padx=5)
         
-        # Area di testo per la trascrizione
-        self.text = scrolledtext.ScrolledText(root, font=("Arial", 10))
-        self.text.pack(expand=True, fill='both', padx=10, pady=10)
+        # Area di testo Trascrizione
+        self.text = scrolledtext.ScrolledText(root, font=("Menlo", 11), bg="#1e1e1e", fg="#ffffff", insertbackground="white")
+        self.text.pack(expand=True, fill='both', padx=15, pady=10)
         
-        # Pulsante Avvia / Ferma (usiamo foreground esplicito per evitare problemi di visibilità)
-        self.btn = tk.Button(root, text="Avvia", font=("Arial", 11, "bold"), command=self.toggle, bg="#28a745", fg="white", activebackground="#218838", activeforeground="white")
-        self.btn.pack(pady=10)
+        # Pulsante Avvia / Ferma con stile visibile
+        self.btn = tk.Button(
+            root, 
+            text="AVVIA TRASCRIZIONE", 
+            font=("Helvetica", 11, "bold"), 
+            command=self.toggle, 
+            bg="#28a745", 
+            fg="white", 
+            activebackground="#218838", 
+            activeforeground="white",
+            relief="raised",
+            bd=2,
+            padx=15,
+            pady=5
+        )
+        self.btn.pack(pady=12)
         
         self.running = False
         self.model = None
-        self.audio_queue = queue.Q() if hasattr(queue, 'Q') else queue.Queue()
+        self.audio_queue = queue.Queue()
+        self.stream = None
 
     def get_device_index(self, name):
         for i, d in enumerate(self.devices):
@@ -52,51 +71,81 @@ class App:
 
     def toggle(self):
         if not self.running:
-            if not self.model:
-                self.label.config(text="Caricamento modello in corso...", fg="orange")
-                self.root.update()
-                self.model = WhisperModel("base", device="cpu", compute_type="int8")
-            
-            self.running = True
-            self.btn.config(text="Ferma", bg="#dc3545", activebackground="#c82333")
-            self.label.config(text="In ascolto...", fg="green")
-            
-            self.thread = threading.Thread(target=self.loop, daemon=True)
-            self.thread.start()
+            self.start_transcription()
         else:
-            self.running = False
-            self.btn.config(text="Avvia", bg="#28a745", activebackground="#218838")
-            self.label.config(text="Fermato", fg="orange")
+            self.stop_transcription()
+
+    def start_transcription(self):
+        if not self.model:
+            self.label_status.config(text="Caricamento modello Whisper in corso...", fg="orange")
+            self.root.update()
+            # Carica modello locale
+            self.model = WhisperModel("base", device="cpu", compute_type="int8")
+            
+        self.running = True
+        self.btn.config(text="FERMA TRASCRIZIONE", bg="#dc3545", activebackground="#c82333", fg="white")
+        self.label_status.config(text="Stato: In ascolto...", fg="#28a745")
+        
+        # Svuota la coda
+        while not self.audio_queue.empty():
+            self.audio_queue.get()
+
+        threading.Thread(target=self.loop, daemon=True).start()
+
+    def stop_transcription(self):
+        self.running = False
+        if self.stream:
+            try:
+                self.stream.stop()
+                self.stream.close()
+            except Exception:
+                pass
+        self.btn.config(text="AVVIA TRASCRIZIONE", bg="#28a745", activebackground="#218838", fg="white")
+        self.label_status.config(text="Stato: Fermato", fg="orange")
 
     def loop(self):
         device_name = self.selected_device.get()
         device_idx = self.get_device_index(device_name)
         
-        q = queue.Queue()
         def callback(indata, frames, time, status):
             if self.running:
-                q.put(indata.copy())
+                self.audio_queue.put(indata.copy())
 
         try:
-            with sd.InputStream(samplerate=16000, channels=1, device=device_idx, callback=callback):
+            self.stream = sd.InputStream(samplerate=16000, channels=1, device=device_idx, callback=callback)
+            with self.stream:
                 while self.running:
-                    try:
-                        data = [q.get(timeout=1)]
-                        np_data = np.concatenate(data, axis=0).flatten().astype(np.float32)
+                    audio_data = []
+                    # Accumula 3 secondi di audio
+                    for _ in range(int(16000 * 3 / 1024)):
+                        if not self.running:
+                            break
+                        try:
+                            audio_data.append(self.audio_queue.get(timeout=0.5))
+                        except queue.Empty:
+                            continue
+
+                    if audio_data and self.running:
+                        np_data = np.concatenate(audio_data, axis=0).flatten().astype(np.float32)
                         segments, _ = self.model.transcribe(np_data, language="it", beam_size=1)
                         for seg in segments:
                             if seg.text.strip():
-                                self.text.insert(tk.END, seg.text.strip() + "\n")
-                                self.text.see(tk.END)
-                    except queue.Empty:
-                        continue
+                                text_to_insert = seg.text.strip() + "\n"
+                                self.root.after(0, self._append_text, text_to_insert)
         except Exception as e:
-            self.text.insert(tk.END, f"\n[Errore audio]: {e}\n")
-            self.running = False
-            self.btn.config(text="Avvia", bg="#28a745")
-            self.label.config(text="Errore", fg="red")
+            self.root.after(0, self._handle_error, str(e))
+
+    def _append_text(self, text):
+        self.text.insert(tk.END, text)
+        self.text.see(tk.END)
+
+    def _handle_error(self, err_msg):
+        self.text.insert(tk.END, f"\n[Errore Audio]: {err_msg}\n")
+        self.stop_transcription()
+        self.label_status.config(text="Errore dispositivo audio", fg="red")
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     root = tk.Tk()
     App(root)
     root.mainloop()
