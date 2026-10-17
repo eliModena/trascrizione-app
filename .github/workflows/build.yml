@@ -40,17 +40,14 @@ jobs:
               <key>CFBundleShortVersionString</key>
               <string>1.0</string>
               <key>NSMicrophoneUsageDescription</key>
-              <string>Questa applicazione necessita dell'accesso al microfono per effettuare la trascrizione audio in tempo reale.</string>
+              <string>BE Video Intercom Transcriptor richiede l'accesso al microfono per effettuare la trascrizione in tempo reale.</string>
           </dict>
+          </plist>
           EOF
 
-      - name: Build macOS App with Permissions
+      - name: Build macOS App with Built-in Permissions and Icon
         run: |
-          pyinstaller --windowed --name "BE Video Intercom Transcriptor" --icon=logo.png --osx-bundle-identifier "com.be.videotranscriptor" app.py
-
-      - name: Inject Info.plist into App Bundle
-        run: |
-          cp Info.plist "dist/BE Video Intercom Transcriptor.app/Contents/Info.plist"
+          pyinstaller --windowed --name "BE Video Intercom Transcriptor" --icon=logo.png --osx-bundle-identifier "com.be.videotranscriptor" --plist Info.plist app.py
 
       - name: Create DMG package
         run: |
