@@ -33,6 +33,10 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string 'BE Video Intercom Transcriptor richiede l'accesso al microfono per effettuare la trascrizione in tempo reale.'" "$PLIST_PATH" || \
           /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription 'BE Video Intercom Transcriptor richiede l'accesso al microfono per effettuare la trascrizione in tempo reale.'" "$PLIST_PATH"
 
+      - name: Re-sign App Bundle (Crucial for System Permissions)
+        run: |
+          codesign --deep --force --sign - "dist/BE Video Intercom Transcriptor.app"
+
       - name: Create DMG package
         run: |
           mkdir dmg_root
