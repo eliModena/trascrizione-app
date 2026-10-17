@@ -16,21 +16,51 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pyinstaller faster-whisper sounddevice numpy
+          pip install pyinstaller faster-whisper sounddevice numpy pillow
 
-      - name: Build macOS App
+      - name: Convert logo to PNG
         run: |
-          pyinstaller --windowed --name "TrascrizioneOffline" app.py
+          python -c "from PIL import Image; img = Image.open('logo.jpg'); img.save('logo.png')" || true
+
+      - name: Create Info.plist for Microphone Permissions
+        run: |
+          cat << 'EOF' > Info.plist
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleName</key>
+              <string>BE Video Intercom Transcriptor</string>
+              <key>CFBundleDisplayName</key>
+              <string>BE Video Intercom Transcriptor</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.be.videotranscriptor</string>
+              <key>CFBundleVersion</key>
+              <string>1.0</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0</string>
+              <key>NSMicrophoneUsageDescription</key>
+              <string>Questa applicazione necessita dell'accesso al microfono per effettuare la trascrizione audio in tempo reale.</string>
+          </dict>
+          EOF
+
+      - name: Build macOS App with Permissions
+        run: |
+          pyinstaller --windowed --name "BE Video Intercom Transcriptor" --icon=logo.png --osx-bundle-identifier "com.be.videotranscriptor" app.py
+
+      - name: Inject Info.plist into App Bundle
+        run: |
+          cp Info.plist "dist/BE Video Intercom Transcriptor.app/Contents/Info.plist"
 
       - name: Create DMG package
         run: |
           mkdir dmg_root
-          cp -R dist/TrascrizioneOffline.app dmg_root/
+          cp -R "dist/BE Video Intercom Transcriptor.app" dmg_root/
           ln -s /Applications dmg_root/Applications
-          hdiutil create -volname "TrascrizioneInstaller" -srcfolder dmg_root -ov -format UDZO TrascrizioneOffline.dmg
+          hdiutil create -volname "BEVideoTranscriptorInstaller" -srcfolder dmg_root -ov -format UDZO BEVideoIntercomTranscriptor.dmg
 
       - name: Upload DMG Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TrascrizioneOffline-DMG
-          path: TrascrizioneOffline.dmg
+          name: BEVideoTranscriptor-DMG
+          path: BEVideoIntercomTranscriptor.dmg
