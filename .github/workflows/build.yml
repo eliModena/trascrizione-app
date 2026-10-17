@@ -23,32 +23,15 @@ jobs:
         run: |
           python -c "from PIL import Image; img = Image.open('logo.jpg'); img.save('logo.png')" || true
 
-      - name: Create Info.plist for Microphone Permissions
+      - name: Build macOS App
         run: |
-          cat << 'EOF' > Info.plist
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleName</key>
-              <string>BE Video Intercom Transcriptor</string>
-              <key>CFBundleDisplayName</key>
-              <string>BE Video Intercom Transcriptor</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.be.videotranscriptor</string>
-              <key>CFBundleVersion</key>
-              <string>1.0</string>
-              <key>CFBundleShortVersionString</key>
-              <string>1.0</string>
-              <key>NSMicrophoneUsageDescription</key>
-              <string>BE Video Intercom Transcriptor richiede l'accesso al microfono per effettuare la trascrizione in tempo reale.</string>
-          </dict>
-          </plist>
-          EOF
+          pyinstaller --windowed --name "BE Video Intercom Transcriptor" --icon=logo.png --osx-bundle-identifier "com.be.videotranscriptor" app.py
 
-      - name: Build macOS App with Built-in Permissions and Icon
+      - name: Inject Microphone Permissions into Info.plist
         run: |
-          pyinstaller --windowed --name "BE Video Intercom Transcriptor" --icon=logo.png --osx-bundle-identifier "com.be.videotranscriptor" --plist Info.plist app.py
+          PLIST_PATH="dist/BE Video Intercom Transcriptor.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string 'BE Video Intercom Transcriptor richiede l'accesso al microfono per effettuare la trascrizione in tempo reale.'" "$PLIST_PATH" || \
+          /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription 'BE Video Intercom Transcriptor richiede l'accesso al microfono per effettuare la trascrizione in tempo reale.'" "$PLIST_PATH"
 
       - name: Create DMG package
         run: |
